@@ -66,11 +66,13 @@ if _backend == "none":
 async def _chat_claude(
     messages: list[dict[str, str]],
     tools: list[dict[str, Any]] | None = None,
+    extra_system: str = "",
 ) -> dict[str, Any]:
+    system = SYSTEM_PROMPT + ("\n\n" + extra_system if extra_system else "")
     kwargs: dict[str, Any] = {
         "model": CLAUDE_MODEL,
         "max_tokens": 300,
-        "system": SYSTEM_PROMPT,
+        "system": system,
         "messages": messages,
     }
     if tools:
@@ -100,9 +102,11 @@ async def _chat_claude(
 async def _chat_ollama(
     messages: list[dict[str, str]],
     tools: list[dict[str, Any]] | None = None,
+    extra_system: str = "",
 ) -> dict[str, Any]:
     """Chat via Ollama local API."""
-    ollama_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    system = SYSTEM_PROMPT + ("\n\n" + extra_system if extra_system else "")
+    ollama_messages = [{"role": "system", "content": system}]
 
     for msg in messages:
         content = msg["content"] if isinstance(msg["content"], str) else json.dumps(msg["content"])
@@ -195,6 +199,7 @@ def _save_cache(text: str, response: str) -> None:
 async def chat(
     messages: list[dict[str, str]],
     tools: list[dict[str, Any]] | None = None,
+    extra_system: str = "",
 ) -> dict[str, Any]:
     """Send messages to LLM. Uses smart routing to save credits."""
     last_msg = messages[-1]["content"] if messages else ""
@@ -213,19 +218,16 @@ async def chat(
         if use_ollama_for_simple:
             log.info("Smart route: Ollama (simple query, saving credits)")
             try:
-                result = await _chat_ollama(messages, None)  # No tools for simple
+                result = await _chat_ollama(messages, None, extra_system)
                 _save_cache(user_text, result.get("text", ""))
                 return result
             except Exception:
-                # Fallback to Claude if Ollama fails
                 pass
 
         if _backend == "claude" and _claude_client:
-            result = await _chat_claude(messages, tools)
-            return result
+            return await _chat_claude(messages, tools, extra_system)
         elif _backend == "ollama":
-            result = await _chat_ollama(messages, tools)
-            return result
+            return await _chat_ollama(messages, tools, extra_system)
         else:
             return {"text": "No AI backend available. Please start Ollama or add an API key to backend/.env"}
     except Exception as e:
@@ -233,7 +235,7 @@ async def chat(
         if _backend == "claude":
             log.info("Claude failed, trying Ollama fallback")
             try:
-                return await _chat_ollama(messages, tools)
+                return await _chat_ollama(messages, tools, extra_system)
             except Exception as e2:
                 return {"text": f"I'm having trouble thinking. Claude: {e}, Ollama: {e2}"}
         return {"text": f"I'm having trouble thinking right now. Error: {e}"}

@@ -3,6 +3,7 @@ import { SpeechInput } from "./speech";
 import { AudioPlayer } from "./audio";
 import { BrowserTTS } from "./tts";
 import { ParticleOrb } from "./orb";
+import { SoundEffects } from "./sounds";
 import { addMessage, setStatus } from "./ui";
 
 // --- Particle Orb ---
@@ -12,13 +13,16 @@ const orb = new ParticleOrb(orbContainer);
 // --- Audio Player ---
 const player = new AudioPlayer();
 
+// --- Sound Effects ---
+const sfx = new SoundEffects();
+
 // --- Browser TTS ---
 const tts = new BrowserTTS();
+const micBtn = document.getElementById("mic-btn")!;
 
 tts.onStart(() => {
   orb.setState("speaking");
   setStatus("Speaking...");
-  // Pause mic while speaking to avoid feedback
   if (speech.isListening()) {
     speech.toggle();
     micBtn.classList.remove("active");
@@ -26,7 +30,6 @@ tts.onStart(() => {
 });
 
 tts.onEnd(() => {
-  // Auto-resume listening after speaking
   if (!speech.isListening()) {
     speech.toggle();
     micBtn.classList.add("active");
@@ -41,6 +44,7 @@ const socket = new JarvisSocket();
 socket.on("connected", () => {
   setStatus("Connected to JARVIS");
   orb.setState("idle");
+  sfx.connected();
 });
 
 socket.on("disconnected", () => {
@@ -53,6 +57,7 @@ socket.on("status", (data) => {
   if (text === "thinking") {
     setStatus("Thinking...");
     orb.setState("thinking");
+    sfx.thinking();
   }
 });
 
@@ -61,9 +66,9 @@ socket.on("response", async (data) => {
   const audio = data.audio as string | undefined;
 
   addMessage(text, "assistant");
+  sfx.response();
 
   if (audio) {
-    // ElevenLabs TTS (premium)
     orb.setState("speaking");
     setStatus("Speaking...");
     try {
@@ -79,7 +84,6 @@ socket.on("response", async (data) => {
       orb.setState("idle");
     }
   } else {
-    // Browser TTS (free)
     tts.speak(text);
   }
 });
@@ -88,6 +92,7 @@ socket.on("error", (data) => {
   console.error("[jarvis]", data.text);
   setStatus("Error occurred");
   orb.setState("idle");
+  sfx.error();
 });
 
 socket.connect();
@@ -103,8 +108,6 @@ const speech = new SpeechInput((text, isFinal) => {
 });
 
 // --- Mic Button ---
-const micBtn = document.getElementById("mic-btn")!;
-
 micBtn.addEventListener("click", () => {
   const isListening = speech.toggle();
   micBtn.classList.toggle("active", isListening);
@@ -112,16 +115,46 @@ micBtn.addEventListener("click", () => {
   if (isListening) {
     setStatus("Listening...");
     orb.setState("listening");
+    sfx.micOn();
   } else {
     setStatus("Click the mic to start");
     orb.setState("idle");
+    sfx.micOff();
   }
 });
 
-// --- Keyboard shortcut: Space to toggle mic ---
+// --- Keyboard Shortcuts ---
 document.addEventListener("keydown", (e) => {
+  // Space = toggle mic
   if (e.code === "Space" && e.target === document.body) {
     e.preventDefault();
     micBtn.click();
   }
+  // F11 = fullscreen
+  if (e.code === "F11") {
+    e.preventDefault();
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen();
+    } else {
+      document.exitFullscreen();
+    }
+  }
+  // Escape = stop speaking
+  if (e.code === "Escape") {
+    tts.stop();
+    setStatus(speech.isListening() ? "Listening..." : "Click the mic to start");
+    orb.setState(speech.isListening() ? "listening" : "idle");
+  }
 });
+
+// --- Fullscreen button ---
+const title = document.getElementById("title");
+if (title) {
+  title.addEventListener("dblclick", () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen();
+    } else {
+      document.exitFullscreen();
+    }
+  });
+}

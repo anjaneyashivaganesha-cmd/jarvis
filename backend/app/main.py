@@ -1,13 +1,15 @@
-"""JARVIS Backend — FastAPI + WebSocket server with Claude Haiku, TTS, and tools."""
+"""JARVIS Backend — FastAPI + WebSocket server with full AI pipeline."""
 
 from __future__ import annotations
 
 import json
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app import memory
 from app.llm import chat
@@ -24,6 +26,39 @@ import app.tools.files  # noqa: F401
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("jarvis")
+
+# --- Personality modes ---
+PERSONALITIES = {
+    "default": "Speak in a refined British manner like the MCU JARVIS. Be witty but professional. Address user as 'sir' occasionally.",
+    "casual": "Be casual and friendly, like a chill buddy. Use informal language, contractions, slang.",
+    "formal": "Be extremely formal and professional. No humor, precise language.",
+    "funny": "Be hilarious. Add jokes, puns, and witty remarks to every response. Still be helpful.",
+    "pirate": "Talk like a pirate. Arrr! But still be helpful and answer correctly.",
+}
+
+_current_personality = "default"
+
+# --- Command history ---
+_command_history: list[dict] = []
+
+
+def _get_context_prompt() -> str:
+    """Generate context-aware prompt additions based on time of day."""
+    now = datetime.now()
+    hour = now.hour
+    if hour < 6:
+        time_context = "It's very late at night/early morning. Be gentle, the user might be tired."
+    elif hour < 12:
+        time_context = "It's morning. Be energetic and positive."
+    elif hour < 17:
+        time_context = "It's afternoon."
+    elif hour < 21:
+        time_context = "It's evening."
+    else:
+        time_context = "It's night time. Be calm."
+
+    personality = PERSONALITIES.get(_current_personality, PERSONALITIES["default"])
+    return f"{personality} {time_context} Current time: {now.strftime('%I:%M %p')}, Date: {now.strftime('%A, %B %d, %Y')}."
 
 
 @asynccontextmanager
@@ -47,11 +82,58 @@ app.add_middleware(
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "jarvis"}
+    return {"status": "ok", "service": "jarvis", "tools": len(get_tool_schemas())}
+
+
+@app.get("/api/personality")
+async def get_personality():
+    return {"current": _current_personality, "available": list(PERSONALITIES.keys())}
+
+
+@app.post("/api/personality/{mode}")
+async def set_personality(mode: str):
+    global _current_personality
+    if mode in PERSONALITIES:
+        _current_personality = mode
+        return {"status": "ok", "personality": mode}
+    return JSONResponse(status_code=400, content={"error": f"Unknown personality: {mode}"})
+
+
+@app.get("/api/history")
+async def get_history():
+    return {"commands": _command_history[-50:]}
 
 
 async def process_message(user_text: str) -> dict:
-    """Process a user message through Claude Haiku with tools and memory."""
+    """Process a user message through the full AI pipeline."""
+    # Record in command history
+    _command_history.append({
+        "text": user_text,
+        "time": datetime.now().strftime("%I:%M %p"),
+    })
+
+    # Check for personality switch commands
+    global _current_personality
+    lower = user_text.lower().strip()
+    for mode in PERSONALITIES:
+        if f"switch to {mode}" in lower or f"{mode} mode" in lower or f"be {mode}" in lower:
+            _current_personality = mode
+            return {"text": f"Personality switched to {mode} mode, sir.", "audio": None}
+
+    # Check for "what did I ask" / command history queries
+    if "what did i ask" in lower or "command history" in lower or "last command" in lower:
+        if _command_history:
+            recent = _command_history[-5:]
+            lines = [f"- {c['text']} ({c['time']})" for c in recent]
+            return {"text": "Your recent commands:\n" + "\n".join(lines), "audio": None}
+
+    # Check for "summarize" our conversation
+    if "summarize" in lower and ("conversation" in lower or "chat" in lower):
+        recent = await memory.get_recent_messages(limit=10)
+        if recent:
+            summary_parts = [f"{m['role']}: {m['content'][:80]}" for m in recent[-6:]]
+            return {"text": "Recent conversation summary:\n" + "\n".join(summary_parts), "audio": None}
+
     # Save user message
     await memory.save_message("user", user_text)
 
@@ -59,21 +141,19 @@ async def process_message(user_text: str) -> dict:
     recent = await memory.get_recent_messages(limit=20)
     messages = [{"role": m["role"], "content": m["content"]} for m in recent]
 
-    # If no recent messages (fresh start), add the current one
     if not messages or messages[-1]["content"] != user_text:
         messages.append({"role": "user", "content": user_text})
 
     # Get tool schemas
     tools = get_tool_schemas()
 
-    # Call Claude
-    result = await chat(messages, tools=tools if tools else None)
+    # Call LLM with context-aware personality
+    result = await chat(messages, tools=tools if tools else None, extra_system=_get_context_prompt())
     response_text = result.get("text", "")
 
     # Handle tool calls
     tool_calls = result.get("tool_calls", [])
     if tool_calls:
-        # Execute each tool and collect results
         tool_results = []
         for tc in tool_calls:
             tool_output = await execute_tool(tc["name"], tc["input"])
@@ -84,11 +164,7 @@ async def process_message(user_text: str) -> dict:
             })
             log.info("Tool %s → %s", tc["name"], tool_output[:100])
 
-        # Send tool results back to Claude for a natural response
-        messages.append({"role": "assistant", "content": result.get("raw_content", response_text)})
-        messages.append({"role": "user", "content": json.dumps(tool_results)})
-
-        # Build assistant message with tool_use blocks for proper API format
+        # Build assistant message with tool_use blocks
         assistant_content = []
         if response_text:
             assistant_content.append({"type": "text", "text": response_text})
@@ -101,14 +177,14 @@ async def process_message(user_text: str) -> dict:
             })
 
         # Rebuild messages with proper tool use/result format
-        followup_messages = messages[:-2]  # Remove the two we just added
+        followup_messages = messages.copy()
         followup_messages.append({"role": "assistant", "content": assistant_content})
         followup_messages.append({"role": "user", "content": [
             {"type": "tool_result", "tool_use_id": tc["id"], "content": tool_output}
             for tc, tool_output in zip(tool_calls, [tr["content"] for tr in tool_results])
         ]})
 
-        followup = await chat(followup_messages)
+        followup = await chat(followup_messages, extra_system=_get_context_prompt())
         response_text = followup.get("text", response_text)
 
     # Save assistant response
@@ -140,14 +216,10 @@ async def websocket_endpoint(ws: WebSocket):
                     continue
 
                 log.info("User: %s", text)
-
-                # Send "thinking" status
                 await ws.send_json({"type": "status", "text": "thinking"})
 
-                # Process through Claude + tools + TTS
                 result = await process_message(text)
 
-                # Send response
                 response: dict = {
                     "type": "response",
                     "text": result["text"],
@@ -159,6 +231,13 @@ async def websocket_endpoint(ws: WebSocket):
 
             elif msg_type == "ping":
                 await ws.send_json({"type": "pong"})
+
+            elif msg_type == "set_personality":
+                mode = data.get("mode", "default")
+                global _current_personality
+                if mode in PERSONALITIES:
+                    _current_personality = mode
+                    await ws.send_json({"type": "response", "text": f"Personality set to {mode}."})
 
     except WebSocketDisconnect:
         log.info("Client disconnected")
