@@ -23,6 +23,8 @@ import app.tools.productivity  # noqa: F401
 import app.tools.information  # noqa: F401
 import app.tools.media  # noqa: F401
 import app.tools.files  # noqa: F401
+import app.tools.habitat  # noqa: F401
+import app.tools.filmmaker  # noqa: F401
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("jarvis")

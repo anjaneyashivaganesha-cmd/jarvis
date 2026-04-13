@@ -79,17 +79,25 @@ async def wikipedia_tool(input_data: dict[str, Any]) -> str:
     query = input_data["query"]
     try:
         import urllib.parse
-        encoded_query = urllib.parse.quote(query.replace(" ", "_"))
+        # Try direct lookup first, then search
         async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
-            resp = await client.get(
-                "https://en.wikipedia.org/api/rest_v1/page/summary/" + encoded_query
-            )
+            encoded = urllib.parse.quote(query.replace(" ", "_"))
+            resp = await client.get(f"https://en.wikipedia.org/api/rest_v1/page/summary/{encoded}")
+            if resp.status_code != 200:
+                # Try search API
+                resp = await client.get(f"https://en.wikipedia.org/w/api.php?action=opensearch&search={urllib.parse.quote(query)}&limit=1&format=json")
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if len(data) > 3 and data[3]:
+                        title = data[1][0] if data[1] else query
+                        encoded = urllib.parse.quote(title.replace(" ", "_"))
+                        resp = await client.get(f"https://en.wikipedia.org/api/rest_v1/page/summary/{encoded}")
             if resp.status_code == 200:
                 data = resp.json()
                 extract = data.get("extract", "")
-                # Limit to 3 sentences for voice
-                sentences = extract.split(". ")[:3]
-                return ". ".join(sentences) + "."
+                if extract:
+                    sentences = extract.split(". ")[:3]
+                    return ". ".join(sentences) + "."
             return f"No Wikipedia article found for '{query}'."
     except Exception as e:
         return f"Wikipedia lookup failed: {e}"
