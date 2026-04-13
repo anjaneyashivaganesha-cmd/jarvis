@@ -47,16 +47,15 @@ async def get_weather_tool(input_data: dict[str, Any]) -> str:
 async def get_news_tool(input_data: dict[str, Any]) -> str:
     topic = input_data.get("topic", "top")
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            # Using Google News RSS
+        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
             url = f"https://news.google.com/rss/search?q={topic}&hl=en-IN&gl=IN"
             resp = await client.get(url)
             resp.raise_for_status()
-            # Simple XML parsing for titles
             import re
-            titles = re.findall(r"<title>(.*?)</title>", resp.text)
-            # Skip first two (feed title + main title)
-            headlines = titles[2:7]
+            titles = re.findall(r"<title><!\[CDATA\[(.*?)\]\]></title>", resp.text)
+            if not titles:
+                titles = re.findall(r"<title>(.*?)</title>", resp.text)
+            headlines = [t for t in titles if t and "Google" not in t][:5]
             if headlines:
                 lines = [f"{i}. {h}" for i, h in enumerate(headlines, 1)]
                 return f"Top {topic} news:\n" + "\n".join(lines)
@@ -79,9 +78,11 @@ async def get_news_tool(input_data: dict[str, Any]) -> str:
 async def wikipedia_tool(input_data: dict[str, Any]) -> str:
     query = input_data["query"]
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
+        import urllib.parse
+        encoded_query = urllib.parse.quote(query.replace(" ", "_"))
+        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
             resp = await client.get(
-                "https://en.wikipedia.org/api/rest_v1/page/summary/" + query.replace(" ", "_")
+                "https://en.wikipedia.org/api/rest_v1/page/summary/" + encoded_query
             )
             if resp.status_code == 200:
                 data = resp.json()

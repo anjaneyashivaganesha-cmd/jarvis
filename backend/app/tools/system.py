@@ -270,3 +270,39 @@ async def type_text_tool(input_data: dict[str, Any]) -> str:
     """
     await run_powershell(script)
     return f"Typed: {text[:50]}..."
+
+
+@tool(
+    name="search_images",
+    description="Search for images on Google and open in browser. Use when user says 'show me images of X'.",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "query": {"type": "string", "description": "What to search images for"},
+        },
+        "required": ["query"],
+    },
+)
+async def search_images_tool(input_data: dict[str, Any]) -> str:
+    query = input_data["query"].replace(" ", "+").replace("'", "")
+    script = f"Start-Process 'https://www.google.com/search?q={query}&tbm=isch'"
+    await run_powershell(script)
+    return f"Showing images of: {input_data['query']}"
+
+
+@tool(
+    name="search_videos",
+    description="Search for videos on YouTube and open in browser. Use when user says 'show me videos of X'.",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "query": {"type": "string", "description": "What to search videos for"},
+        },
+        "required": ["query"],
+    },
+)
+async def search_videos_tool(input_data: dict[str, Any]) -> str:
+    query = input_data["query"].replace(" ", "+").replace("'", "")
+    script = f"Start-Process 'https://www.youtube.com/results?search_query={query}'"
+    await run_powershell(script)
+    return f"Showing videos of: {input_data['query']}"

@@ -1,6 +1,7 @@
 export class AudioPlayer {
   private context: AudioContext | null = null;
   private currentSource: AudioBufferSourceNode | null = null;
+  private _onEndCallback: (() => void) | null = null;
 
   private getContext(): AudioContext {
     if (!this.context) {
@@ -9,7 +10,11 @@ export class AudioPlayer {
     return this.context;
   }
 
-  async playBase64(base64Audio: string, format = "audio/mpeg"): Promise<void> {
+  onEnd(cb: () => void): void {
+    this._onEndCallback = cb;
+  }
+
+  async playBase64(base64Audio: string): Promise<void> {
     const ctx = this.getContext();
     const binary = atob(base64Audio);
     const bytes = new Uint8Array(binary.length);
@@ -17,20 +22,35 @@ export class AudioPlayer {
       bytes[i] = binary.charCodeAt(i);
     }
 
-    const audioBuffer = await ctx.decodeAudioData(bytes.buffer);
+    const audioBuffer = await ctx.decodeAudioData(bytes.buffer.slice(0));
     const source = ctx.createBufferSource();
     source.buffer = audioBuffer;
     source.connect(ctx.destination);
     this.currentSource = source;
-    source.start(0);
-    source.onended = () => { this.currentSource = null; };
+
+    return new Promise<void>((resolve) => {
+      source.onended = () => {
+        this.currentSource = null;
+        this._onEndCallback?.();
+        resolve();
+      };
+      source.start(0);
+    });
   }
 
   stop(): void {
     if (this.currentSource) {
-      try { this.currentSource.stop(); } catch (_) {}
+      try {
+        this.currentSource.onended = null; // prevent double-fire
+        this.currentSource.stop();
+      } catch (_) {}
       this.currentSource = null;
+      this._onEndCallback?.();
     }
+  }
+
+  isPlaying(): boolean {
+    return this.currentSource !== null;
   }
 
   getAnalyser(): AnalyserNode | null {
