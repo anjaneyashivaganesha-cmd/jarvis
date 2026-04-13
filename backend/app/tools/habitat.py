@@ -353,36 +353,65 @@ async def habitat_limits_tool(input_data: dict[str, Any]) -> str:
 - QA must be human-written for ALL runs"""
 
 
+CHROME = r'"C:\Program Files\Google\Chrome\Application\chrome.exe"'
+
+
+async def open_in_chrome(url: str) -> None:
+    """Open URL in Chrome (keeps user sessions/cookies)."""
+    from app.tools.system import run_powershell
+    await run_powershell(f'Start-Process {CHROME} -ArgumentList "{url}"')
+
+
 @tool(
     name="habitat_open_site",
-    description="Open Habitat Code website or a specific repo on GitHub.",
+    description="Open Habitat Code, Slack, Deel, GitHub repos, or any work site in Chrome. Use when user says 'open slack', 'open habitat', 'open opa repo', etc.",
     input_schema={
         "type": "object",
         "properties": {
-            "target": {"type": "string", "description": "'habitat' for the site, or repo name like 'opa' for GitHub"},
+            "target": {"type": "string", "description": "'habitat' for the site, 'slack' for Slack, 'deel' for payments, or repo name like 'opa' for GitHub"},
         },
         "required": ["target"],
     },
 )
 async def habitat_open_site_tool(input_data: dict[str, Any]) -> str:
-    from app.tools.system import run_powershell
     target = input_data["target"].lower().strip()
 
-    if target in ("habitat", "site", "code"):
-        await run_powershell("Start-Process 'https://code.habitat.inc'")
-        return "Opened Habitat Code website"
-    elif target in ("slack", "announcements"):
-        await run_powershell("Start-Process 'https://app.slack.com'")
-        return "Opened Slack — check #announcements"
-    elif target in ("deel", "payment"):
-        await run_powershell("Start-Process 'https://app.deel.com'")
-        return "Opened Deel for payments"
+    sites = {
+        "habitat": ("https://code.habitat.inc", "Habitat Code"),
+        "code": ("https://code.habitat.inc", "Habitat Code"),
+        "site": ("https://code.habitat.inc", "Habitat Code"),
+        "slack": ("https://app.slack.com", "Slack — check #announcements"),
+        "announcements": ("https://app.slack.com", "Slack — check #announcements"),
+        "deel": ("https://app.deel.com", "Deel payments"),
+        "payment": ("https://app.deel.com", "Deel payments"),
+        "payments": ("https://app.deel.com", "Deel payments"),
+        "github": ("https://github.com", "GitHub"),
+        "claude": ("https://console.anthropic.com", "Claude Console"),
+        "anthropic": ("https://console.anthropic.com", "Claude Console"),
+        "elevenlabs": ("https://elevenlabs.io/app", "ElevenLabs"),
+        "youtube": ("https://youtube.com", "YouTube"),
+        "gmail": ("https://mail.google.com", "Gmail"),
+        "drive": ("https://drive.google.com", "Google Drive"),
+        "twitter": ("https://x.com", "Twitter/X"),
+        "linkedin": ("https://linkedin.com", "LinkedIn"),
+    }
+
+    if target in sites:
+        url, name = sites[target]
+        await open_in_chrome(url)
+        return f"Opened {name}"
     elif target in REPOS:
         repo = REPOS[target]
-        await run_powershell(f"Start-Process 'https://github.com/{repo['github']}'")
+        await open_in_chrome(f"https://github.com/{repo['github']}")
         return f"Opened {target} on GitHub: {repo['github']}"
     else:
-        return f"Unknown target: {target}. Try: habitat, slack, deel, or a repo name like opa, tidb, etc."
+        # Try opening as a URL or search
+        if "." in target:
+            await open_in_chrome(f"https://{target}")
+            return f"Opened {target}"
+        else:
+            await open_in_chrome(f"https://www.google.com/search?q={target}")
+            return f"Searched for: {target}"
 
 
 @tool(

@@ -53,9 +53,9 @@ async def open_app_tool(input_data: dict[str, Any]) -> str:
     app = input_data["app_name"].lower().strip()
 
     app_map = {
-        "chrome": "Start-Process chrome",
-        "google chrome": "Start-Process chrome",
-        "browser": "Start-Process chrome",
+        "chrome": "Start-Process 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'",
+        "google chrome": "Start-Process 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'",
+        "browser": "Start-Process 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'",
         "notepad": "Start-Process notepad",
         "calculator": "Start-Process calc",
         "calc": "Start-Process calc",
