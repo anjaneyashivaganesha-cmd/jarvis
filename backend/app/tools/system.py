@@ -163,3 +163,110 @@ async def screenshot_tool(input_data: dict[str, Any]) -> str:
     """
     result = await run_powershell(script)
     return f"Screenshot saved to {result}"
+
+
+@tool(
+    name="lock_pc",
+    description="Lock the computer screen.",
+    input_schema={"type": "object", "properties": {}},
+)
+async def lock_pc_tool(input_data: dict[str, Any]) -> str:
+    await run_powershell("rundll32.exe user32.dll,LockWorkStation")
+    return "Computer locked."
+
+
+@tool(
+    name="set_brightness",
+    description="Set screen brightness to a level (0-100).",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "level": {"type": "integer", "description": "Brightness 0-100"},
+        },
+        "required": ["level"],
+    },
+)
+async def set_brightness_tool(input_data: dict[str, Any]) -> str:
+    level = max(0, min(100, input_data["level"]))
+    script = f"(Get-WmiObject -Namespace root/WMI -Class WmiMonitorBrightnessMethods).WmiSetBrightness(1,{level})"
+    result = await run_powershell(script)
+    return result if result else f"Brightness set to {level}%"
+
+
+@tool(
+    name="toggle_wifi",
+    description="Turn WiFi on or off.",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "enable": {"type": "boolean", "description": "true to enable, false to disable"},
+        },
+        "required": ["enable"],
+    },
+)
+async def toggle_wifi_tool(input_data: dict[str, Any]) -> str:
+    action = "Enable" if input_data["enable"] else "Disable"
+    script = f"Get-NetAdapter -Name 'Wi-Fi' | {action}-NetAdapter -Confirm:$false"
+    result = await run_powershell(script)
+    return result if result else f"WiFi {'enabled' if input_data['enable'] else 'disabled'}"
+
+
+@tool(
+    name="kill_process",
+    description="Close/kill a running application by name. Use when user says 'close Spotify', 'kill Chrome'.",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "process_name": {"type": "string", "description": "App name like chrome, spotify, notepad"},
+        },
+        "required": ["process_name"],
+    },
+)
+async def kill_process_tool(input_data: dict[str, Any]) -> str:
+    name = input_data["process_name"].lower().strip()
+    process_map = {
+        "chrome": "chrome", "google chrome": "chrome",
+        "firefox": "firefox", "edge": "msedge",
+        "notepad": "notepad", "spotify": "Spotify",
+        "vscode": "Code", "vs code": "Code", "code": "Code",
+        "word": "WINWORD", "excel": "EXCEL", "powerpoint": "POWERPNT",
+        "teams": "Teams", "discord": "Discord", "slack": "slack",
+    }
+    proc = process_map.get(name, name)
+    script = f"Stop-Process -Name '{proc}' -Force -ErrorAction SilentlyContinue; Write-Output 'Done'"
+    result = await run_powershell(script)
+    return f"Closed {name}" if "Done" in result else result
+
+
+@tool(
+    name="minimize_all",
+    description="Minimize all windows (show desktop).",
+    input_schema={"type": "object", "properties": {}},
+)
+async def minimize_all_tool(input_data: dict[str, Any]) -> str:
+    script = "(New-Object -ComObject Shell.Application).MinimizeAll()"
+    await run_powershell(script)
+    return "All windows minimized."
+
+
+@tool(
+    name="type_text",
+    description="Type text into the currently active window. Use when user says 'type this for me'.",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "text": {"type": "string", "description": "The text to type"},
+        },
+        "required": ["text"],
+    },
+)
+async def type_text_tool(input_data: dict[str, Any]) -> str:
+    text = input_data["text"].replace("'", "''")
+    script = f"""
+    Add-Type -AssemblyName System.Windows.Forms
+    Start-Sleep -Milliseconds 500
+    [System.Windows.Forms.SendKeys]::SendWait('{text}')
+    Write-Output "Typed"
+    """
+    await run_powershell(script)
+    return f"Typed: {text[:50]}..."

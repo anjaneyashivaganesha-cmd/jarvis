@@ -23,7 +23,7 @@ async def synthesize(text: str) -> str | None:
         log.warning("ElevenLabs API key not set — skipping TTS")
         return None
 
-    url = f"{ELEVENLABS_URL}/{ELEVENLABS_VOICE_ID}"
+    url = f"{ELEVENLABS_URL}/{ELEVENLABS_VOICE_ID}?output_format=mp3_44100_128"
 
     headers = {
         "xi-api-key": ELEVENLABS_API_KEY,
@@ -34,11 +34,12 @@ async def synthesize(text: str) -> str | None:
         "text": text,
         "model_id": "eleven_turbo_v2_5",
         "voice_settings": {
-            "stability": 0.5,
-            "similarity_boost": 0.75,
-            "style": 0.0,
+            "stability": 0.4,
+            "similarity_boost": 0.8,
+            "style": 0.15,
             "use_speaker_boost": True,
         },
+        "speed": 2.0,
     }
 
     try:

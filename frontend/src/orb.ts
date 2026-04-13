@@ -6,10 +6,10 @@ const PARTICLE_COUNT = 2000;
 const BASE_RADIUS = 1.5;
 
 const STATE_COLORS: Record<OrbState, THREE.Color> = {
-  idle: new THREE.Color(0x0066ff),
-  listening: new THREE.Color(0xff4444),
-  thinking: new THREE.Color(0xffaa00),
-  speaking: new THREE.Color(0x00ff88),
+  idle: new THREE.Color(0xD4A843),
+  listening: new THREE.Color(0xFF8C00),
+  thinking: new THREE.Color(0xFFD700),
+  speaking: new THREE.Color(0xE8912D),
 };
 
 export class ParticleOrb {

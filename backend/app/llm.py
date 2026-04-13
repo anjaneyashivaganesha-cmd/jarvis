@@ -155,21 +155,81 @@ async def _chat_ollama(
     return result
 
 
+# --- Response cache ---
+_cache: dict[str, str] = {}
+
+# Simple queries that don't need Claude (saves credits)
+_SIMPLE_PATTERNS = [
+    "what time", "what's the time", "what date", "what day",
+    "good morning", "good afternoon", "good evening", "good night",
+    "hello", "hi jarvis", "hey jarvis", "thank you", "thanks",
+    "bye", "goodbye", "see you", "how are you",
+]
+
+
+def _is_simple_query(text: str) -> bool:
+    """Check if query is simple enough for Ollama (saves Claude credits)."""
+    lower = text.lower().strip()
+    # Short greetings and pleasantries
+    if len(lower.split()) <= 4 and any(p in lower for p in _SIMPLE_PATTERNS):
+        return True
+    return False
+
+
+def _check_cache(text: str) -> str | None:
+    """Check if we have a cached response."""
+    key = text.lower().strip()
+    return _cache.get(key)
+
+
+def _save_cache(text: str, response: str) -> None:
+    """Cache a response (max 100 entries)."""
+    if len(_cache) > 100:
+        # Remove oldest entries
+        keys = list(_cache.keys())[:50]
+        for k in keys:
+            del _cache[k]
+    _cache[text.lower().strip()] = response
+
+
 async def chat(
     messages: list[dict[str, str]],
     tools: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Send messages to LLM and get a response."""
+    """Send messages to LLM. Uses smart routing to save credits."""
+    last_msg = messages[-1]["content"] if messages else ""
+    user_text = last_msg if isinstance(last_msg, str) else ""
+
+    # Check cache first
+    cached = _check_cache(user_text)
+    if cached and not tools:
+        log.info("Cache hit: %s", user_text[:50])
+        return {"text": cached}
+
+    # Smart routing: simple queries -> Ollama (free), complex -> Claude (paid)
+    use_ollama_for_simple = _backend == "claude" and _is_simple_query(user_text)
+
     try:
+        if use_ollama_for_simple:
+            log.info("Smart route: Ollama (simple query, saving credits)")
+            try:
+                result = await _chat_ollama(messages, None)  # No tools for simple
+                _save_cache(user_text, result.get("text", ""))
+                return result
+            except Exception:
+                # Fallback to Claude if Ollama fails
+                pass
+
         if _backend == "claude" and _claude_client:
-            return await _chat_claude(messages, tools)
+            result = await _chat_claude(messages, tools)
+            return result
         elif _backend == "ollama":
-            return await _chat_ollama(messages, tools)
+            result = await _chat_ollama(messages, tools)
+            return result
         else:
             return {"text": "No AI backend available. Please start Ollama or add an API key to backend/.env"}
     except Exception as e:
         log.exception("LLM error with %s", _backend)
-        # If Claude fails, try Ollama as fallback
         if _backend == "claude":
             log.info("Claude failed, trying Ollama fallback")
             try:

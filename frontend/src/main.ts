@@ -1,6 +1,7 @@
 import { JarvisSocket } from "./websocket";
 import { SpeechInput } from "./speech";
 import { AudioPlayer } from "./audio";
+import { BrowserTTS } from "./tts";
 import { ParticleOrb } from "./orb";
 import { addMessage, setStatus } from "./ui";
 
@@ -10,6 +11,29 @@ const orb = new ParticleOrb(orbContainer);
 
 // --- Audio Player ---
 const player = new AudioPlayer();
+
+// --- Browser TTS ---
+const tts = new BrowserTTS();
+
+tts.onStart(() => {
+  orb.setState("speaking");
+  setStatus("Speaking...");
+  // Pause mic while speaking to avoid feedback
+  if (speech.isListening()) {
+    speech.toggle();
+    micBtn.classList.remove("active");
+  }
+});
+
+tts.onEnd(() => {
+  // Auto-resume listening after speaking
+  if (!speech.isListening()) {
+    speech.toggle();
+    micBtn.classList.add("active");
+    setStatus("Listening...");
+    orb.setState("listening");
+  }
+});
 
 // --- WebSocket ---
 const socket = new JarvisSocket();
@@ -39,23 +63,24 @@ socket.on("response", async (data) => {
   addMessage(text, "assistant");
 
   if (audio) {
+    // ElevenLabs TTS (premium)
     orb.setState("speaking");
     setStatus("Speaking...");
-
     try {
       await player.playBase64(audio);
     } catch (e) {
       console.error("[audio] playback error:", e);
     }
-  }
-
-  // Return to listening if mic is active, otherwise idle
-  if (speech.isListening()) {
-    setStatus("Listening...");
-    orb.setState("listening");
+    if (speech.isListening()) {
+      setStatus("Listening...");
+      orb.setState("listening");
+    } else {
+      setStatus("Click the mic to start");
+      orb.setState("idle");
+    }
   } else {
-    setStatus("Click the mic to start");
-    orb.setState("idle");
+    // Browser TTS (free)
+    tts.speak(text);
   }
 });
 

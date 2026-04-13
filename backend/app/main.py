@@ -17,6 +17,10 @@ from app.tools.registry import execute_tool, get_tool_schemas
 # Import tools to register them
 import app.tools.notes  # noqa: F401
 import app.tools.system  # noqa: F401
+import app.tools.productivity  # noqa: F401
+import app.tools.information  # noqa: F401
+import app.tools.media  # noqa: F401
+import app.tools.files  # noqa: F401
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("jarvis")
