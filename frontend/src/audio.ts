@@ -1,5 +1,6 @@
 export class AudioPlayer {
   private context: AudioContext | null = null;
+  private currentSource: AudioBufferSourceNode | null = null;
 
   private getContext(): AudioContext {
     if (!this.context) {
@@ -20,7 +21,16 @@ export class AudioPlayer {
     const source = ctx.createBufferSource();
     source.buffer = audioBuffer;
     source.connect(ctx.destination);
+    this.currentSource = source;
     source.start(0);
+    source.onended = () => { this.currentSource = null; };
+  }
+
+  stop(): void {
+    if (this.currentSource) {
+      try { this.currentSource.stop(); } catch (_) {}
+      this.currentSource = null;
+    }
   }
 
   getAnalyser(): AnalyserNode | null {
