@@ -17,8 +17,8 @@ start "JARVIS Frontend" cmd /k "C:\Program Files\nodejs\npm.cmd" run dev
 :: Wait for frontend to start
 timeout /t 3 /nobreak >nul
 
-:: Open browser
-start http://localhost:5173
+:: Open as standalone app window (stays active when switching windows)
+start chrome --app=http://localhost:5173 --window-size=500,700
 
 echo JARVIS is running!
 echo Close this window when done.
