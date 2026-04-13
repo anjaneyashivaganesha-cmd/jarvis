@@ -1,0 +1,100 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  background: #0a0a0f;
+  color: #e0e0e0;
+  font-family: "SF Mono", "Fira Code", monospace;
+  height: 100vh;
+  overflow: hidden;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  position: relative;
+}
+
+#orb-container {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+#ui {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+#status {
+  font-size: 0.875rem;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+#mic-btn {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  border: 2px solid #333;
+  background: rgba(255, 255, 255, 0.05);
+  color: #888;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+#mic-btn:hover {
+  border-color: #0af;
+  color: #0af;
+}
+
+#mic-btn.active {
+  border-color: #f44;
+  color: #f44;
+  box-shadow: 0 0 20px rgba(255, 68, 68, 0.3);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 20px rgba(255, 68, 68, 0.3); }
+  50% { box-shadow: 0 0 40px rgba(255, 68, 68, 0.5); }
+}
+
+#transcript {
+  max-width: 600px;
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 1rem;
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.msg {
+  margin-bottom: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+}
+
+.msg.user {
+  background: rgba(0, 170, 255, 0.1);
+  border-left: 3px solid #0af;
+}
+
+.msg.assistant {
+  background: rgba(0, 255, 136, 0.1);
+  border-left: 3px solid #0f8;
+}

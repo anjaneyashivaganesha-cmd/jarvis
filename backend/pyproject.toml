@@ -1,0 +1,19 @@
+[project]
+name = "jarvis-backend"
+version = "0.1.0"
+description = "JARVIS - Voice-first AI assistant backend"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.34.0",
+    "websockets>=14.0",
+    "anthropic>=0.42.0",
+    "httpx>=0.28.0",
+    "aiosqlite>=0.21.0",
+    "python-dotenv>=1.0.0",
+]
+
+[tool.uv]
+dev-dependencies = [
+    "ruff>=0.8.0",
+]
