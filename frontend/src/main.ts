@@ -18,6 +18,7 @@ const socket = new JarvisSocket();
 type JarvisState = "locked" | "idle" | "listening" | "thinking" | "speaking";
 let state: JarvisState = "locked";
 let lastSpeakTime = 0;
+let thinkingTimeout: number | null = null;
 
 const WAKE_WORDS = ["jarvis", "hey jarvis", "ok jarvis", "yo jarvis", "hi jarvis", "hello jarvis"];
 const STOP_WORDS = ["stop", "stop jarvis", "shut up", "quiet", "enough", "stop talking",
@@ -25,8 +26,16 @@ const STOP_WORDS = ["stop", "stop jarvis", "shut up", "quiet", "enough", "stop t
   "hey jarvis wait", "hold on", "pause"];
 
 function setState(newState: JarvisState): void {
-  console.log(`[state] ${state} → ${newState}`);
+  const prev = state;
   state = newState;
+  console.log(`[state] ${prev} → ${newState}`);
+
+  // Clear thinking timeout when leaving thinking state
+  if (prev === "thinking" && thinkingTimeout) {
+    clearTimeout(thinkingTimeout);
+    thinkingTimeout = null;
+  }
+
   switch (newState) {
     case "locked":
       setStatus("Click anywhere to enable voice");
@@ -37,18 +46,28 @@ function setState(newState: JarvisState): void {
       setStatus("Say 'Hey JARVIS'...");
       orb.setState("idle");
       micBtn.classList.remove("active");
+      ensureRecognition();
       break;
     case "listening":
       setStatus("Listening...");
       orb.setState("listening");
       micBtn.classList.add("active");
+      ensureRecognition();
       break;
     case "thinking":
       setStatus("Thinking...");
       orb.setState("thinking");
+      // AUTO-RECOVERY: if stuck in thinking for 30 seconds, go back to listening
+      thinkingTimeout = window.setTimeout(() => {
+        if (state === "thinking") {
+          console.warn("[recovery] Stuck in thinking — recovering to listening");
+          addMessage("Sorry sir, I had trouble processing that. Please try again.", "assistant");
+          setState("listening");
+        }
+      }, 30000);
       break;
     case "speaking":
-      setStatus("Speaking... (click mic or say 'stop')");
+      setStatus("Speaking... (click mic to stop)");
       orb.setState("speaking");
       break;
   }
@@ -63,22 +82,19 @@ function stopSpeaking(): void {
 }
 
 function isInCooldown(): boolean {
-  return Date.now() - lastSpeakTime < 2000;
+  return Date.now() - lastSpeakTime < 1500; // Reduced from 2s to 1.5s
 }
 
 // --- Speech Recognition ---
 const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 let recognition: any = null;
-let recognitionRunning = false;
 
 function ensureRecognition(): void {
-  if (!recognition || recognitionRunning) return;
+  if (!recognition || state === "locked") return;
   try {
     recognition.start();
-    recognitionRunning = true;
   } catch (_) {
-    // Already running
-    recognitionRunning = true;
+    // Already running — this is fine
   }
 }
 
@@ -93,47 +109,39 @@ if (SpeechRecognition) {
       const transcript = event.results[i][0].transcript.toLowerCase().trim();
       const isFinal = event.results[i].isFinal;
 
-      // Ignore during cooldown (prevents echo after stopping)
       if (isInCooldown()) continue;
 
-      // STOP detection — works during speaking
+      // STOP detection during speaking
       if (state === "speaking") {
         if (STOP_WORDS.some((w) => transcript.includes(w))) {
-          console.log("[stop] Voice:", transcript);
           stopSpeaking();
         }
-        continue; // Ignore all non-stop input while speaking
+        continue;
       }
 
-      // WAKE WORD detection — works during idle
+      // Ignore input while thinking
+      if (state === "thinking") continue;
+
+      // WAKE WORD during idle
       if (state === "idle") {
         if (WAKE_WORDS.some((w) => transcript.includes(w))) {
           console.log("[wake] Detected:", transcript);
           sfx.micOn();
           setState("listening");
 
-          // Extract command after wake word
           let cmd = transcript;
-          for (const w of WAKE_WORDS) {
-            cmd = cmd.replace(w, "").trim();
-          }
-          if (cmd.length > 2 && isFinal) {
-            sendCommand(cmd);
-          }
+          for (const w of WAKE_WORDS) cmd = cmd.replace(w, "").trim();
+          if (cmd.length > 2 && isFinal) sendCommand(cmd);
         }
         continue;
       }
 
-      // COMMAND processing — works during listening
+      // COMMAND during listening
       if (state === "listening" && isFinal) {
         const text = event.results[i][0].transcript.trim();
         let cmd = text;
-        for (const w of WAKE_WORDS) {
-          cmd = cmd.replace(new RegExp(w, "gi"), "").trim();
-        }
-        if (cmd.length > 1) {
-          sendCommand(cmd);
-        }
+        for (const w of WAKE_WORDS) cmd = cmd.replace(new RegExp(w, "gi"), "").trim();
+        if (cmd.length > 1) sendCommand(cmd);
       }
     }
   };
@@ -142,14 +150,12 @@ if (SpeechRecognition) {
     if (event.error !== "no-speech" && event.error !== "aborted") {
       console.error("[speech] error:", event.error);
     }
-    recognitionRunning = false;
   };
 
   recognition.onend = () => {
-    recognitionRunning = false;
-    // Always restart unless locked
+    // ALWAYS restart unless locked — this is the key reliability fix
     if (state !== "locked") {
-      setTimeout(ensureRecognition, 300);
+      setTimeout(ensureRecognition, 200);
     }
   };
 }
@@ -161,7 +167,7 @@ function sendCommand(text: string): void {
   sfx.thinking();
 }
 
-// --- Audio player end callback ---
+// --- Audio callbacks ---
 player.onEnd(() => {
   if (state === "speaking") {
     lastSpeakTime = Date.now();
@@ -169,11 +175,7 @@ player.onEnd(() => {
   }
 });
 
-// --- Browser TTS callbacks ---
-tts.onStart(() => {
-  setState("speaking");
-});
-
+tts.onStart(() => setState("speaking"));
 tts.onEnd(() => {
   if (state === "speaking") {
     lastSpeakTime = Date.now();
@@ -181,14 +183,11 @@ tts.onEnd(() => {
   }
 });
 
-// --- WebSocket events ---
+// --- WebSocket ---
 socket.on("connected", () => {
   sfx.connected();
-  if (state === "locked") {
-    setState("locked"); // Keep locked until first click
-  } else {
+  if (state !== "locked") {
     setState("idle");
-    ensureRecognition();
   }
 });
 
@@ -198,7 +197,7 @@ socket.on("disconnected", () => {
 });
 
 socket.on("status", (data) => {
-  if ((data.text as string) === "thinking") {
+  if ((data.text as string) === "thinking" && state !== "speaking") {
     setState("thinking");
   }
 });
@@ -206,6 +205,12 @@ socket.on("status", (data) => {
 socket.on("response", async (data) => {
   const text = data.text as string;
   const audio = data.audio as string | undefined;
+
+  // Clear thinking timeout
+  if (thinkingTimeout) {
+    clearTimeout(thinkingTimeout);
+    thinkingTimeout = null;
+  }
 
   addMessage(text, "assistant");
   sfx.response();
@@ -216,7 +221,6 @@ socket.on("response", async (data) => {
       await player.playBase64(audio);
     } catch (e) {
       console.error("[audio] error:", e);
-      // If playback fails, go back to listening
       if (state === "speaking") {
         lastSpeakTime = Date.now();
         setState("listening");
@@ -235,10 +239,21 @@ socket.on("error", (data) => {
 
 socket.connect();
 
+// --- WebSocket heartbeat — keeps connection alive ---
+setInterval(() => {
+  socket.send({ type: "ping" });
+}, 15000);
+
+// --- Recognition watchdog — restart if it dies ---
+setInterval(() => {
+  if (state !== "locked" && state !== "speaking") {
+    ensureRecognition();
+  }
+}, 5000);
+
 // --- Mic Button ---
 micBtn.addEventListener("click", () => {
   if (state === "locked") {
-    // First click unlocks
     setState("idle");
     ensureRecognition();
     return;
@@ -253,7 +268,6 @@ micBtn.addEventListener("click", () => {
   } else {
     setState("listening");
     sfx.micOn();
-    ensureRecognition();
   }
 });
 
@@ -272,22 +286,20 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
-// --- First click/key unlocks mic ---
-function unlockOnInteraction(): void {
+// --- First interaction unlocks ---
+function unlock(): void {
   if (state !== "locked") return;
   setState("idle");
   ensureRecognition();
-  document.removeEventListener("click", unlockOnInteraction);
-  document.removeEventListener("keydown", unlockOnKey);
+  document.removeEventListener("click", unlock);
+  document.removeEventListener("keydown", unlock);
 }
-function unlockOnKey(): void { unlockOnInteraction(); }
-document.addEventListener("click", unlockOnInteraction);
-document.addEventListener("keydown", unlockOnKey);
+document.addEventListener("click", unlock);
+document.addEventListener("keydown", unlock);
 
-// --- Fullscreen on title double-click ---
+// --- Fullscreen ---
 document.getElementById("title")?.addEventListener("dblclick", () => {
   document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
 });
 
-// --- Initial state ---
 setState("locked");

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager
@@ -220,7 +221,15 @@ async def websocket_endpoint(ws: WebSocket):
                 log.info("User: %s", text)
                 await ws.send_json({"type": "status", "text": "thinking"})
 
-                result = await process_message(text)
+                # Process with 25 second timeout — never hang forever
+                try:
+                    result = await asyncio.wait_for(process_message(text), timeout=25.0)
+                except asyncio.TimeoutError:
+                    log.error("Process message timed out for: %s", text[:50])
+                    result = {"text": "Sorry sir, that took too long. Please try again.", "audio": None}
+                except Exception as e:
+                    log.exception("Process message error")
+                    result = {"text": f"I encountered an error, sir. {str(e)[:80]}", "audio": None}
 
                 response: dict = {
                     "type": "response",
