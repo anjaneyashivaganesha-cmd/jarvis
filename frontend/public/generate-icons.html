@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<body>
+<canvas id="c192" width="192" height="192"></canvas>
+<canvas id="c512" width="512" height="512"></canvas>
+<script>
+function drawIcon(canvas, size) {
+  const ctx = canvas.getContext('2d');
+  // Black background with slight gradient
+  const grad = ctx.createRadialGradient(size/2, size/2, 0, size/2, size/2, size/2);
+  grad.addColorStop(0, '#0a0a0f');
+  grad.addColorStop(1, '#050505');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+
+  // Gold circle border
+  ctx.beginPath();
+  ctx.arc(size/2, size/2, size*0.4, 0, Math.PI*2);
+  ctx.strokeStyle = '#D4A843';
+  ctx.lineWidth = size*0.02;
+  ctx.stroke();
+
+  // Gold "J" letter
+  ctx.font = `bold ${size*0.45}px 'Arial'`;
+  ctx.fillStyle = '#D4A843';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('J', size/2, size/2);
+
+  // Gold glow
+  ctx.shadowColor = '#D4A843';
+  ctx.shadowBlur = size*0.05;
+  ctx.fillText('J', size/2, size/2);
+}
+drawIcon(document.getElementById('c192'), 192);
+drawIcon(document.getElementById('c512'), 512);
+
+// Download links
+document.getElementById('c192').toBlob(b => {
+  const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'icon-192.png'; a.click();
+});
+document.getElementById('c512').toBlob(b => {
+  const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'icon-512.png'; a.click();
+});
+</script>
+</body>
+</html>
