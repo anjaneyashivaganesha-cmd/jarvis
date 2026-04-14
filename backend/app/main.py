@@ -154,41 +154,21 @@ async def process_message(user_text: str) -> dict:
     result = await chat(messages, tools=tools if tools else None, extra_system=_get_context_prompt())
     response_text = result.get("text", "")
 
-    # Handle tool calls
+    # Handle tool calls — FAST PATH: skip second API call for simple tools
     tool_calls = result.get("tool_calls", [])
     if tool_calls:
-        tool_results = []
+        tool_outputs = []
         for tc in tool_calls:
             tool_output = await execute_tool(tc["name"], tc["input"])
-            tool_results.append({
-                "type": "tool_result",
-                "tool_use_id": tc["id"],
-                "content": tool_output,
-            })
+            tool_outputs.append(tool_output)
             log.info("Tool %s → %s", tc["name"], tool_output[:100])
 
-        # Build assistant message with tool_use blocks
-        assistant_content = []
+        # For simple tool results, just use the output directly (saves 1 API call = 2x faster)
+        combined_output = "\n".join(tool_outputs)
         if response_text:
-            assistant_content.append({"type": "text", "text": response_text})
-        for tc in tool_calls:
-            assistant_content.append({
-                "type": "tool_use",
-                "id": tc["id"],
-                "name": tc["name"],
-                "input": tc["input"],
-            })
-
-        # Rebuild messages with proper tool use/result format
-        followup_messages = messages.copy()
-        followup_messages.append({"role": "assistant", "content": assistant_content})
-        followup_messages.append({"role": "user", "content": [
-            {"type": "tool_result", "tool_use_id": tc["id"], "content": tool_output}
-            for tc, tool_output in zip(tool_calls, [tr["content"] for tr in tool_results])
-        ]})
-
-        followup = await chat(followup_messages, extra_system=_get_context_prompt())
-        response_text = followup.get("text", response_text)
+            response_text = f"{response_text} {combined_output}"
+        else:
+            response_text = combined_output
 
     # Save assistant response
     await memory.save_message("assistant", response_text)

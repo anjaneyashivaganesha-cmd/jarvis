@@ -12,6 +12,7 @@ const player = new AudioPlayer();
 const sfx = new SoundEffects();
 const tts = new BrowserTTS();
 const micBtn = document.getElementById("mic-btn")!;
+const stopBtn = document.getElementById("stop-btn")!;
 const socket = new JarvisSocket();
 
 // --- State machine ---
@@ -19,6 +20,7 @@ type JarvisState = "locked" | "idle" | "listening" | "thinking" | "speaking";
 let state: JarvisState = "locked";
 let lastSpeakTime = 0;
 let thinkingTimeout: number | null = null;
+let speakingTimeout: number | null = null;
 
 const WAKE_WORDS = ["jarvis", "hey jarvis", "ok jarvis", "yo jarvis", "hi jarvis", "hello jarvis"];
 const STOP_WORDS = ["stop", "stop jarvis", "shut up", "quiet", "enough", "stop talking",
@@ -67,8 +69,17 @@ function setState(newState: JarvisState): void {
       }, 30000);
       break;
     case "speaking":
-      setStatus("Speaking... (click mic to stop)");
+      setStatus("Speaking...");
       orb.setState("speaking");
+      stopBtn.style.display = "block";
+      // Safety: force back to listening after 20 seconds max
+      if (speakingTimeout) clearTimeout(speakingTimeout);
+      speakingTimeout = window.setTimeout(() => {
+        if (state === "speaking") {
+          console.warn("[recovery] Speaking too long — forcing back to listening");
+          stopSpeaking();
+        }
+      }, 20000);
       break;
   }
 }
@@ -77,9 +88,17 @@ function stopSpeaking(): void {
   if (state !== "speaking") return;
   tts.stop();
   player.stop();
+  stopBtn.style.display = "none";
+  if (speakingTimeout) { clearTimeout(speakingTimeout); speakingTimeout = null; }
   lastSpeakTime = Date.now();
   setState("listening");
 }
+
+// Stop button click
+stopBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  stopSpeaking();
+});
 
 function isInCooldown(): boolean {
   return Date.now() - lastSpeakTime < 1500; // Reduced from 2s to 1.5s
@@ -170,6 +189,8 @@ function sendCommand(text: string): void {
 // --- Audio callbacks ---
 player.onEnd(() => {
   if (state === "speaking") {
+    stopBtn.style.display = "none";
+    if (speakingTimeout) { clearTimeout(speakingTimeout); speakingTimeout = null; }
     lastSpeakTime = Date.now();
     setState("listening");
   }
@@ -178,6 +199,8 @@ player.onEnd(() => {
 tts.onStart(() => setState("speaking"));
 tts.onEnd(() => {
   if (state === "speaking") {
+    stopBtn.style.display = "none";
+    if (speakingTimeout) { clearTimeout(speakingTimeout); speakingTimeout = null; }
     lastSpeakTime = Date.now();
     setState("listening");
   }
@@ -246,10 +269,10 @@ setInterval(() => {
 
 // --- Recognition watchdog — restart if it dies ---
 setInterval(() => {
-  if (state !== "locked" && state !== "speaking") {
+  if (state !== "locked") {
     ensureRecognition();
   }
-}, 5000);
+}, 3000);
 
 // --- Mic Button ---
 micBtn.addEventListener("click", () => {
@@ -285,6 +308,15 @@ document.addEventListener("keydown", (e) => {
     stopSpeaking();
   }
 });
+
+// --- Tap ANYWHERE to stop speaking (whole page) ---
+document.addEventListener("click", (e) => {
+  if (state === "speaking") {
+    e.preventDefault();
+    e.stopPropagation();
+    stopSpeaking();
+  }
+}, true);
 
 // --- First interaction unlocks ---
 function unlock(): void {
