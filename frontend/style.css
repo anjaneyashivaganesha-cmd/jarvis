@@ -152,6 +152,34 @@ body::after {
   }
 }
 
+/* Text Input — type commands when voice doesn't work */
+#text-input-wrap {
+  width: 100%;
+  max-width: 500px;
+}
+
+#text-input {
+  width: 100%;
+  padding: 0.5rem 1rem;
+  font-family: "Fira Code", "SF Mono", monospace;
+  font-size: 0.8rem;
+  color: var(--gold);
+  background: rgba(212, 168, 67, 0.06);
+  border: 1px solid var(--gold-dim);
+  border-radius: 20px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+#text-input::placeholder {
+  color: rgba(212, 168, 67, 0.3);
+}
+
+#text-input:focus {
+  border-color: var(--orange);
+  box-shadow: 0 0 10px rgba(232, 145, 45, 0.15);
+}
+
 /* Transcript Area */
 #transcript {
   max-width: 650px;
@@ -246,6 +274,19 @@ body::after {
   background: rgba(232, 145, 45, 0.08);
   border-left: 2px solid var(--orange);
   color: #e8dcc8;
+}
+
+/* Streaming cursor effect — blinking caret while text streams in */
+.msg.assistant.streaming::after {
+  content: '▋';
+  color: var(--orange);
+  animation: cursor-blink 0.6s step-end infinite;
+  margin-left: 2px;
+}
+
+@keyframes cursor-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
 }
 
 /* Bottom HUD line */

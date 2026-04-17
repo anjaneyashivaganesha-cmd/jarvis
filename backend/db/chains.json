@@ -1,0 +1,12 @@
+{
+  "morning": [
+    {
+      "tool": "get_time",
+      "input": {}
+    },
+    {
+      "tool": "system_info",
+      "input": {}
+    }
+  ]
+}

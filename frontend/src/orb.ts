@@ -1,16 +1,52 @@
 import * as THREE from "three";
 
 type OrbState = "idle" | "listening" | "thinking" | "speaking";
+export type OrbTheme = "iron_man" | "matrix" | "ocean" | "fire" | "minimal" | "cyberpunk";
 
 const PARTICLE_COUNT = 2000;
 const BASE_RADIUS = 1.5;
 
-const STATE_COLORS: Record<OrbState, THREE.Color> = {
-  idle: new THREE.Color(0xD4A843),
-  listening: new THREE.Color(0xFF8C00),
-  thinking: new THREE.Color(0xFFD700),
-  speaking: new THREE.Color(0xE8912D),
+// Theme color palettes
+const THEMES: Record<OrbTheme, Record<OrbState, THREE.Color>> = {
+  iron_man: {
+    idle: new THREE.Color(0xD4A843),
+    listening: new THREE.Color(0xFF8C00),
+    thinking: new THREE.Color(0xFFD700),
+    speaking: new THREE.Color(0xE8912D),
+  },
+  matrix: {
+    idle: new THREE.Color(0x00AA00),
+    listening: new THREE.Color(0x00FF00),
+    thinking: new THREE.Color(0x33FF33),
+    speaking: new THREE.Color(0x00DD00),
+  },
+  ocean: {
+    idle: new THREE.Color(0x1565C0),
+    listening: new THREE.Color(0x42A5F5),
+    thinking: new THREE.Color(0x00BCD4),
+    speaking: new THREE.Color(0x29B6F6),
+  },
+  fire: {
+    idle: new THREE.Color(0xBF360C),
+    listening: new THREE.Color(0xFF5722),
+    thinking: new THREE.Color(0xFF9800),
+    speaking: new THREE.Color(0xF44336),
+  },
+  minimal: {
+    idle: new THREE.Color(0x888888),
+    listening: new THREE.Color(0xCCCCCC),
+    thinking: new THREE.Color(0xFFFFFF),
+    speaking: new THREE.Color(0xAAAAAA),
+  },
+  cyberpunk: {
+    idle: new THREE.Color(0x9C27B0),
+    listening: new THREE.Color(0xE040FB),
+    thinking: new THREE.Color(0x00E5FF),
+    speaking: new THREE.Color(0xFF4081),
+  },
 };
+
+let STATE_COLORS = THEMES.iron_man;
 
 export class ParticleOrb {
   private scene: THREE.Scene;
@@ -112,6 +148,14 @@ export class ParticleOrb {
   setState(state: OrbState): void {
     this.state = state;
     this.targetColor = STATE_COLORS[state].clone();
+  }
+
+  setTheme(theme: OrbTheme): void {
+    if (THEMES[theme]) {
+      STATE_COLORS = THEMES[theme];
+      this.targetColor = STATE_COLORS[this.state].clone();
+      console.log(`[orb] Theme set to: ${theme}`);
+    }
   }
 
   setAudioLevel(level: number): void {

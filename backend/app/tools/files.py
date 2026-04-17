@@ -110,3 +110,110 @@ async def recycle_bin_tool(input_data: dict[str, Any]) -> str:
     Write-Output "Recycle bin has $count items."
     """
     return await run_powershell(script)
+
+
+@tool(
+    name="move_file",
+    description="Move or rename a file. Use when user says 'move X to desktop', 'rename file', 'put that file in Documents'.",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "source": {"type": "string", "description": "Full path of the file to move"},
+            "destination": {"type": "string", "description": "Destination path or folder. Can use shortcuts: 'desktop', 'documents', 'downloads'"},
+        },
+        "required": ["source", "destination"],
+    },
+)
+async def move_file_tool(input_data: dict[str, Any]) -> str:
+    source = input_data["source"].replace("'", "''")
+    dest = input_data["destination"].strip()
+
+    folder_map = {
+        "desktop": "C:\\Users\\suche\\Desktop",
+        "documents": "C:\\Users\\suche\\Documents",
+        "downloads": "C:\\Users\\suche\\Downloads",
+    }
+    resolved = folder_map.get(dest.lower(), dest)
+    resolved = resolved.replace("'", "''")
+
+    script = f"Move-Item -Path '{source}' -Destination '{resolved}' -Force; Write-Output 'Moved'"
+    result = await run_powershell(script)
+    return f"Moved to {resolved}" if "Moved" in result else result
+
+
+@tool(
+    name="copy_file",
+    description="Copy a file to another location. Use when user says 'copy this to desktop', 'make a backup of X'.",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "source": {"type": "string", "description": "Full path of the file to copy"},
+            "destination": {"type": "string", "description": "Destination path or folder. Can use shortcuts: 'desktop', 'documents', 'downloads'"},
+        },
+        "required": ["source", "destination"],
+    },
+)
+async def copy_file_tool(input_data: dict[str, Any]) -> str:
+    source = input_data["source"].replace("'", "''")
+    dest = input_data["destination"].strip()
+
+    folder_map = {
+        "desktop": "C:\\Users\\suche\\Desktop",
+        "documents": "C:\\Users\\suche\\Documents",
+        "downloads": "C:\\Users\\suche\\Downloads",
+    }
+    resolved = folder_map.get(dest.lower(), dest)
+    resolved = resolved.replace("'", "''")
+
+    script = f"Copy-Item -Path '{source}' -Destination '{resolved}' -Force; Write-Output 'Copied'"
+    result = await run_powershell(script)
+    return f"Copied to {resolved}" if "Copied" in result else result
+
+
+@tool(
+    name="create_folder",
+    description="Create a new folder. Use when user says 'make a folder called X', 'create directory'.",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "Full path for the new folder, or just a name to create on Desktop"},
+        },
+        "required": ["path"],
+    },
+)
+async def create_folder_tool(input_data: dict[str, Any]) -> str:
+    path = input_data["path"].replace("'", "''")
+    # If just a name with no path separator, create on Desktop
+    if "\\" not in path and "/" not in path:
+        path = f"C:\\Users\\suche\\Desktop\\{path}"
+    script = f"New-Item -Path '{path}' -ItemType Directory -Force | Select-Object -ExpandProperty FullName"
+    result = await run_powershell(script)
+    return f"Created folder: {result}" if result else "Failed to create folder"
+
+
+@tool(
+    name="delete_file",
+    description="Delete a file (moves to recycle bin, not permanent). Use when user says 'delete X', 'remove that file'.",
+    input_schema={
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "Full path of the file to delete"},
+        },
+        "required": ["path"],
+    },
+)
+async def delete_file_tool(input_data: dict[str, Any]) -> str:
+    path = input_data["path"].replace("'", "''")
+    # Move to recycle bin instead of permanent delete
+    script = f"""
+    $shell = New-Object -ComObject Shell.Application
+    $item = $shell.NameSpace(0).ParseName('{path}')
+    if ($item) {{
+        $item.InvokeVerb('delete')
+        Write-Output 'Moved to recycle bin'
+    }} else {{
+        Write-Output 'File not found'
+    }}
+    """
+    result = await run_powershell(script)
+    return result

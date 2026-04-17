@@ -160,3 +160,93 @@ async def delete_note(note_id: int) -> bool:
     cursor = await _db.execute("DELETE FROM notes WHERE id = ?", (note_id,))
     await _db.commit()
     return (cursor.rowcount or 0) > 0
+
+
+# --- Persistent Memory (facts that survive sessions) ---
+
+async def _ensure_facts_table() -> None:
+    if not _db:
+        return
+    await _db.executescript("""
+        CREATE TABLE IF NOT EXISTS facts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            fact TEXT NOT NULL,
+            category TEXT DEFAULT 'general',
+            created_at TEXT NOT NULL
+        );
+        CREATE VIRTUAL TABLE IF NOT EXISTS facts_fts USING fts5(
+            fact, category,
+            content='facts',
+            content_rowid='id'
+        );
+        CREATE TRIGGER IF NOT EXISTS facts_ai AFTER INSERT ON facts BEGIN
+            INSERT INTO facts_fts(rowid, fact, category) VALUES (new.id, new.fact, new.category);
+        END;
+    """)
+    await _db.commit()
+
+
+async def remember_fact(fact: str, category: str = "general") -> int:
+    """Save a fact to persistent memory."""
+    if not _db:
+        return -1
+    await _ensure_facts_table()
+    now = datetime.now(timezone.utc).isoformat()
+    cursor = await _db.execute(
+        "INSERT INTO facts (fact, category, created_at) VALUES (?, ?, ?)",
+        (fact, category, now),
+    )
+    await _db.commit()
+    return cursor.lastrowid or -1
+
+
+async def recall_facts(query: str, limit: int = 5) -> list[dict]:
+    """Search persistent memory for matching facts."""
+    if not _db:
+        return []
+    await _ensure_facts_table()
+    try:
+        cursor = await _db.execute(
+            """
+            SELECT f.id, f.fact, f.category, f.created_at
+            FROM facts_fts fts
+            JOIN facts f ON f.id = fts.rowid
+            WHERE facts_fts MATCH ?
+            ORDER BY rank
+            LIMIT ?
+            """,
+            (query, limit),
+        )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+    except Exception:
+        # Fallback to LIKE search if FTS fails
+        cursor = await _db.execute(
+            "SELECT id, fact, category, created_at FROM facts WHERE fact LIKE ? ORDER BY id DESC LIMIT ?",
+            (f"%{query}%", limit),
+        )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+
+async def get_all_facts(limit: int = 20) -> list[dict]:
+    """Get all saved facts."""
+    if not _db:
+        return []
+    await _ensure_facts_table()
+    cursor = await _db.execute(
+        "SELECT id, fact, category, created_at FROM facts ORDER BY id DESC LIMIT ?",
+        (limit,),
+    )
+    rows = await cursor.fetchall()
+    return [dict(row) for row in rows]
+
+
+async def forget_fact(fact_id: int) -> bool:
+    """Delete a fact from persistent memory."""
+    if not _db:
+        return False
+    await _ensure_facts_table()
+    cursor = await _db.execute("DELETE FROM facts WHERE id = ?", (fact_id,))
+    await _db.commit()
+    return (cursor.rowcount or 0) > 0

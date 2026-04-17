@@ -8,6 +8,8 @@ export class BrowserTTS {
   private voice: SpeechSynthesisVoice | null = null;
   private onStartCb: (() => void) | null = null;
   private onEndCb: (() => void) | null = null;
+  private safetyTimeout: number | null = null;
+  private isSpeaking = false;
 
   constructor() {
     this.synth = window.speechSynthesis;
@@ -17,6 +19,15 @@ export class BrowserTTS {
     if (speechSynthesis.onvoiceschanged !== undefined) {
       speechSynthesis.onvoiceschanged = () => this.loadVoice();
     }
+
+    // Chrome bug workaround: speechSynthesis.speaking can get stuck.
+    // Periodically check and unstick it.
+    setInterval(() => {
+      if (this.isSpeaking && !this.synth.speaking && !this.synth.pending) {
+        console.warn("[tts] Chrome stuck — synth reports not speaking but we never got onend");
+        this.forceEnd();
+      }
+    }, 3000);
   }
 
   private loadVoice(): void {
@@ -57,37 +68,73 @@ export class BrowserTTS {
     this.onEndCb = cb;
   }
 
+  private forceEnd(): void {
+    this.isSpeaking = false;
+    if (this.safetyTimeout) {
+      clearTimeout(this.safetyTimeout);
+      this.safetyTimeout = null;
+    }
+    this.onEndCb?.();
+  }
+
   speak(text: string): void {
     // Cancel any ongoing speech
     this.synth.cancel();
-
-    const utterance = new SpeechSynthesisUtterance(text);
-
-    if (this.voice) {
-      utterance.voice = this.voice;
+    this.isSpeaking = false;
+    if (this.safetyTimeout) {
+      clearTimeout(this.safetyTimeout);
+      this.safetyTimeout = null;
     }
 
-    utterance.rate = 1.0;
-    utterance.pitch = 0.9;
-    utterance.volume = 1.0;
+    // Small delay after cancel to avoid Chrome race condition
+    setTimeout(() => {
+      const utterance = new SpeechSynthesisUtterance(text);
 
-    utterance.onstart = () => {
-      this.onStartCb?.();
-    };
+      if (this.voice) {
+        utterance.voice = this.voice;
+      }
 
-    utterance.onend = () => {
-      this.onEndCb?.();
-    };
+      utterance.rate = 1.0;
+      utterance.pitch = 0.9;
+      utterance.volume = 1.0;
 
-    utterance.onerror = (e) => {
-      console.error("[tts] error:", e);
-      this.onEndCb?.();
-    };
+      utterance.onstart = () => {
+        this.isSpeaking = true;
+        this.onStartCb?.();
+      };
 
-    this.synth.speak(utterance);
+      utterance.onend = () => {
+        this.isSpeaking = false;
+        if (this.safetyTimeout) {
+          clearTimeout(this.safetyTimeout);
+          this.safetyTimeout = null;
+        }
+        this.onEndCb?.();
+      };
+
+      utterance.onerror = (e) => {
+        console.error("[tts] error:", e);
+        this.forceEnd();
+      };
+
+      this.synth.speak(utterance);
+
+      // Safety timeout: if speech doesn't finish in 25s, force end
+      // Handles Chrome's bug where onend never fires for long utterances
+      this.safetyTimeout = window.setTimeout(() => {
+        if (this.isSpeaking) {
+          console.warn("[tts] Safety timeout — forcing speech end");
+          this.synth.cancel();
+          this.forceEnd();
+        }
+      }, 25000);
+    }, 50);
   }
 
   stop(): void {
     this.synth.cancel();
+    if (this.isSpeaking) {
+      this.forceEnd();
+    }
   }
 }
